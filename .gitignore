@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+tmp/
+**/data/raw/online_retail.zip
+**/outputs/*_bundle.zip

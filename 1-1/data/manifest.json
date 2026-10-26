@@ -1,0 +1,18 @@
+{
+  "source": "https://archive.ics.uci.edu/static/public/352/online+retail.zip",
+  "citation": "Chen, D. (2015). Online Retail. DOI: 10.24432/C5BW33",
+  "license": "CC BY 4.0",
+  "raw_rows": 541909,
+  "raw_columns": 8,
+  "archive_sha256": "f5385cbb54bbebf7196389109c6b0621faab0c304e3702548165e71c84aede8b",
+  "csv_sha256": "6ab0696a26b79ac03051bede281297470606a0a69ccee2cc948508dce350a8fa",
+  "image_origin": "Synthetic NumPy fixtures; independent of prices and sales; not photographs",
+  "image_seed": 20261025,
+  "image_shape": [
+    4070,
+    16,
+    16,
+    3
+  ],
+  "date_encoding": "Excel serial days, origin 1899-12-30"
+}

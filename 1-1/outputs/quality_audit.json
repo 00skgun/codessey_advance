@@ -1,0 +1,19 @@
+{
+  "raw_rows": 541909,
+  "exact_duplicate_rows": 5268,
+  "imputed_price": 2517,
+  "price_iqr": {
+    "q1": 1.25,
+    "q3": 4.13,
+    "iqr": 2.88,
+    "lower": -3.0700000000000003,
+    "upper": 8.45,
+    "count": 39854
+  },
+  "missing_customer_rows": 135080,
+  "cancel_or_nonpositive_qty_rows": 10624,
+  "nonpositive_or_missing_price_rows": 2517,
+  "invalid_date_rows": 0,
+  "valid_purchase_rows": 397884,
+  "excluded_rows": 144025
+}

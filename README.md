@@ -10,6 +10,11 @@ AI 심화 학습 과제를 모아 두는 저장소다. 상위 폴더 `codessey_a
 - [실행된 분석 노트북](1-1/notebooks/analysis_report.ipynb)
 - [DataAnalyzer 파이프라인](1-1/src/pipeline.py)
 - [세그먼트별 분석 결과](1-1/outputs/segment_summary.csv)
+- [피드백 19개 항목별 구현·실행 증거](1-1/outputs/evaluation_evidence.md)
+- [노트북 전체 실행 로그](1-1/outputs/execution.log) · [실행 상태·셀 수·오류 수](1-1/outputs/execution_summary.json)
+- [차트 6종 제목·축 레이블·체크섬](1-1/outputs/figure_manifest.json)
+
+`handle_missing()` 호환 메서드, 상관계수 3쌍의 수치 해석, IQR·그룹 대치의 한계, NumPy 성능 실측, 세그먼트별 검증 KPI와 향후 90일 미구매 예측 설계를 과제 README·노트북에 함께 기록했다.
 
 ## 실행 방법
 

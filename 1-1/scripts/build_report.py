@@ -1,8 +1,14 @@
 """Rebuild all evidence, the Korean README and an executable notebook."""
 import argparse
+from datetime import datetime, timezone
+import hashlib
+import io
 import json
 from pathlib import Path
+import platform
+import re
 import sys
+from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -15,6 +21,9 @@ import pandas as pd
 import seaborn as sns
 
 from src.pipeline import DataAnalyzer
+from scripts.benchmark_vectorization import benchmark_images
+from scripts.report_evidence import (correlation_pairs, load_config, save_figure_evidence,
+                                     supplemental_sections, write_evaluation_index)
 
 
 def markdown_table(frame):
@@ -59,10 +68,12 @@ def create_figures(analyzer, rfm):
     figures["04_heatmap"] = fig
 
     purchase = analyzer.valid_transactions()
-    sample = purchase.sample(n=min(15000, len(purchase)), random_state=42)
+    settings = getattr(analyzer, "analysis_config", load_config())
+    sample = purchase.sample(n=min(settings["scatter_sample_size"], len(purchase)),
+                             random_state=settings["random_seed"])
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.scatter(np.log10(sample.quantity), np.log10(sample.amount), alpha=0.15, s=10, color="#327da8", rasterized=True)
-    ax.set(title="Quantity and line spend (15,000-line fixed sample)", xlabel="log10(quantity)", ylabel="log10(gross line spend in GBP)")
+    ax.set(title=f"Quantity and line spend ({len(sample):,}-line fixed sample)", xlabel="log10(quantity)", ylabel="log10(gross line spend in GBP)")
     figures["05_scatter"] = fig
 
     monthly = purchase.groupby(purchase.order_date.dt.to_period("M")).amount.sum()
@@ -76,15 +87,27 @@ def create_figures(analyzer, rfm):
     return figures
 
 
-def analyze():
+def analyze(settings=None):
+    settings = load_config() if settings is None else settings
     analyzer = DataAnalyzer(ROOT / "data/raw/transactions.csv")
+    analyzer.analysis_config = settings
+    stages = {}
+    start = perf_counter()
     analyzer.load_data()
+    stages["csv_load_and_raw_copy"] = perf_counter() - start
     missing_before = analyzer.df.isna().sum()
-    analyzer.handle_missing_values(strategy="median", group_col="product_id")
+    start = perf_counter()
+    analyzer.handle_missing(strategy=settings["missing_strategy"], group_col=settings["missing_group_col"])
+    stages["group_imputation"] = perf_counter() - start
+    start = perf_counter()
     with np.load(ROOT / "data/image_fixtures.npz", allow_pickle=False) as images:
         analyzer.engineer_features(images["product_ids"], images["images"])
-    analyzer.detect_outliers("price", threshold=1.5, treatment="clip")
-    rfm = analyzer.calculate_rfm()
+    stages["image_io_features_and_join"] = perf_counter() - start
+    start = perf_counter()
+    analyzer.detect_outliers("price", threshold=settings["iqr_threshold"], treatment="clip")
+    rfm = analyzer.calculate_rfm(reference_date=settings["reference_date"])
+    stages["iqr_and_rfm"] = perf_counter() - start
+    analyzer.audit["stage_seconds"] = stages
     summary = rfm.groupby("segment").agg(
         customers=("monetary", "size"), mean_recency=("recency", "mean"),
         mean_frequency=("frequency", "mean"), mean_monetary=("monetary", "mean"),
@@ -109,7 +132,7 @@ def interpretations(a, rfm, summary):
     ]
 
 
-def write_readme(a, rfm, summary, insights):
+def write_readme(a, rfm, summary, insights, benchmark):
     n = len(a.raw)
     table = summary.round(2).reset_index()
     text = f"""# 쇼핑몰 단골 찾기: 멀티모달 EDA와 RFM 분석
@@ -191,10 +214,11 @@ py -3.12 -m venv .venv
 
 제출 저장소: [00skgun/codessey_advance](https://github.com/00skgun/codessey_advance). 이 분석은 저장소의 `1-1/`에 있다. 실행 명령은 `1-1` 폴더를 기준으로 한다. `.venv`, 임시 파일, 다운로드 ZIP은 `.gitignore`로 제외되며 재현에 필요한 CSV·NPZ·실행된 노트북·차트는 포함한다.
 """
+    text += "\n" + supplemental_sections(a, benchmark)
     (ROOT / "README.md").write_text(text, encoding="utf-8")
 
 
-def write_notebook(a, rfm, summary, insights, execute=False):
+def write_notebook(a, rfm, summary, insights, benchmark, execute=False):
     import nbformat as nbf
     nb = nbf.v4.new_notebook()
     cells = []
@@ -206,11 +230,11 @@ def write_notebook(a, rfm, summary, insights, execute=False):
     code("from pathlib import Path\nimport sys\nimport io\nimport numpy as np\nimport pandas as pd\nimport matplotlib.pyplot as plt\nfrom IPython.display import display\n\nROOT = Path.cwd()\nif not (ROOT / 'src').exists():\n    ROOT = ROOT.parent\nsys.path.insert(0, str(ROOT))\nfrom src.pipeline import DataAnalyzer\nfrom scripts.build_report import create_figures\n\npd.set_option('display.max_columns', 20)\na = DataAnalyzer(ROOT / 'data/raw/transactions.csv')\na.load_data()\nprint('Rows / raw columns:', a.raw.shape)\ndisplay(a.raw.head())")
     md("## 1. 데이터 구조와 결측\n숫자(가격·수량), 텍스트(상품명), 범주(국가), 날짜를 확인한다. 원본 고객 ID 누락 "
        f"{a.audit['missing_customer_rows']:,}행은 RFM에서 제외한다. 따라서 분석 결과는 고객 식별이 가능한 거래를 대표하며 전체 방문 고객을 대표하지 않는다.")
-    code("a.raw.info()\ndisplay(a.raw.describe(include='all'))\ndisplay(pd.DataFrame({'raw_missing': a.raw.isna().sum(), 'eda_missing_before': a.df.isna().sum()}))")
+    code("from scripts.report_evidence import load_config, correlation_pairs\nsettings = load_config(ROOT / 'outputs/config_used.json')\na.analysis_config = settings\na.raw.info()\ndisplay(a.raw.dtypes.astype(str).value_counts().rename('column_count').to_frame())\ndisplay(a.raw.describe(include='all'))\ndisplay(pd.DataFrame({'raw_missing': a.raw.isna().sum(), 'eda_missing_before': a.df.isna().sum()}))")
     md("## 2. 그룹별 결측치 대치\n0 이하 가격을 EDA에서 결측으로 바꾸고 **동일 상품 ID별 중앙값 → 전체 중앙값** 순서로 대치한다. "
        f"대치 대상은 {a.audit['imputed_price']:,}행이다. 상품명은 동일 상품의 관측값을 앞뒤로 채우고 남으면 UNKNOWN PRODUCT를 사용한다. "
        "고객 ID와 거래일은 채우지 않으며, RFM은 대치 이전 원본을 사용한다.")
-    code("a.handle_missing_values(strategy='median', group_col='product_id')\nprint('Imputed price rows:', a.audit['imputed_price'])\ndisplay(a.df.isna().sum().rename('remaining_missing').to_frame())")
+    code("a.handle_missing(strategy=settings['missing_strategy'], group_col=settings['missing_group_col'])\nprint('Imputed price rows:', a.audit['imputed_price'])\nprint('Imputation audit:', a.audit['price_imputation'])\ndisplay(a.imputation_details['price'].sort_values('missing_ratio', ascending=False).head(10))\ndisplay(a.df.isna().sum().rename('remaining_missing').to_frame())")
     md("## 3. NumPy 멀티모달 피처\n(N,H,W,C) 배열의 축 (1,2,3)을 한 번에 축약해 이미지별 평균·표준편차를 계산한다. "
        "전체 이미지를 벡터로 처리하므로 이미지/픽셀 for 문이 없다. 표준편차는 모집단 기준 ddof=0이고, 텍스트는 길이와 공백 기준 단어 수로 수치화한다. "
        "추가로 float32 변환 후 인접 픽셀 절댓값 차이로 엣지를 계산해 uint8 차감의 오버플로를 피한다.")
@@ -219,7 +243,7 @@ def write_notebook(a, rfm, summary, insights, execute=False):
        f"가격 Q1=£{a.audit['price_iqr']['q1']:.2f}, Q3=£{a.audit['price_iqr']['q3']:.2f}, "
        f"상한=£{a.audit['price_iqr']['upper']:.2f}이며 이상치는 {a.audit['price_iqr']['count']:,}행이다. "
        "고가 상품은 유효한 구매일 수 있으므로 자동 삭제하지 않는다. 전후 박스플롯은 파생 열 클리핑의 영향만 보여준다.")
-    code("outliers = a.detect_outliers('price', threshold=1.5, treatment='clip')\nprint(a.audit['price_iqr'])\ndisplay(outliers[['product_id', 'price', 'price_clipped']].head())")
+    code("outliers = a.detect_outliers('price', threshold=settings['iqr_threshold'], treatment='clip')\nprint(a.audit['price_iqr'])\ndisplay(outliers[['product_id', 'price', 'price_clipped']].head())")
     stats = a.summary_statistics()
     corr = a.df[["price", "quantity", "amount", "name_length", "image_mean", "image_std"]].corr()
     md("## 5. 기술 통계와 상관분석\n아래 통계는 대치된 EDA 전체 상품 행 기준이며 반품 수량도 포함한다. "
@@ -229,12 +253,12 @@ def write_notebook(a, rfm, summary, insights, execute=False):
        f"① 수량–금액 Pearson r={corr.loc['quantity','amount']:.4f}. 금액=가격×수량이라는 정의와 대량 주문의 영향이 있으므로 수량과 금액을 독립적인 수요 지표처럼 해석하면 안 된다.\n\n"
        f"② 가격–수량 Pearson r={corr.loc['price','quantity']:.4f}. 이 선형 상관만으로 가격 인하가 수요를 늘린다고 결론낼 수 없으므로 상품별·기간별 통제 분석이 필요하다. "
        "합성 이미지의 상관은 생성 과정에 따른 우연이며 상품 사진의 효과에 대한 근거가 아니다.")
-    code("display(a.summary_statistics())\ncorrelation_columns = ['price', 'quantity', 'amount', 'name_length', 'image_mean', 'image_std']\ndisplay(a.df[correlation_columns].corr())")
+    code("display(a.summary_statistics())\ncorrelation_columns = ['price', 'quantity', 'amount', 'name_length', 'image_mean', 'image_std']\ndisplay(a.df[correlation_columns].corr())\n# Explicit series.corr calculations for at least two distinct pairs\ndisplay(correlation_pairs(a))")
     md("## 6. RFM과 회계 기준\n빈도는 상품 행 수가 아닌 `order_id.nunique()`이고 금액은 원본 양수 거래의 합이다. "
        f"기준일 {a.reference_date:%Y-%m-%d}, 유효 구매 {a.audit['valid_purchase_rows']:,}행, 고객 {len(rfm):,}명이다. "
        "취소·비양수 가격/수량·식별자/날짜 결측은 제외한다. 반품 차감 순매출이 아니므로 수익성 판단에는 추가 데이터가 필요하다.\n\n"
        "동점은 평균 백분위로 같은 점수를 부여한다. 우선순위는 VIP(R/F/M≥4), Churned(R≤2), New(R≥4·주문 1회), Loyal(F≥3), Potential(나머지)이다.")
-    code("rfm = a.calculate_rfm()\nsegment_summary = rfm.groupby('segment').agg(customers=('monetary', 'size'), mean_recency=('recency', 'mean'), mean_frequency=('frequency', 'mean'), mean_monetary=('monetary', 'mean'), gross_purchases=('monetary', 'sum'))\ndisplay(rfm.head())\ndisplay(segment_summary.round(2))\nprint('Reference date:', a.reference_date)\nprint('RFM customers:', len(rfm), 'Segments:', rfm.segment.nunique())")
+    code("rfm = a.calculate_rfm(reference_date=settings['reference_date'])\nsegment_summary = rfm.groupby('segment').agg(customers=('monetary', 'size'), mean_recency=('recency', 'mean'), mean_frequency=('frequency', 'mean'), mean_monetary=('monetary', 'mean'), gross_purchases=('monetary', 'sum'))\ndisplay(rfm.head())\ndisplay(segment_summary.round(2))\nprint('Reference date:', a.reference_date)\nprint('RFM customers:', len(rfm), 'Segments:', rfm.segment.nunique())")
     md("## 7. 필수 6종 시각화\n히스토그램·박스플롯의 가격은 양수 대치값을 사용한다. 산점도와 월별 라인차트는 원본 유효 구매만 사용한다. "
        "로그 축과 log10 변환은 축 레이블에 명시했다. 이미지 피처가 합성이라는 점도 히트맵에 표시했다.")
     code("%matplotlib inline")
@@ -249,6 +273,11 @@ def write_notebook(a, rfm, summary, insights, execute=False):
        "결측 제외 사유는 중복될 수 있으므로 항목별 제외 건수를 더해서 전체 제외 행 수로 사용하지 않는다. "
        "가입 시점, 실제 상품 이미지, 마진, 노출/전환 이력, 고객 연락처는 제공되지 않았다.")
     code("purchase = a.valid_transactions()\nassert len(rfm) == purchase.customer_id.nunique()\nassert rfm.index.is_unique and rfm.recency.ge(0).all()\nassert rfm.segment.nunique() >= 4\nassert np.isclose(rfm.monetary.sum(), purchase.amount.sum())\nassert a.df.shape[0] >= 1000 and a.raw.shape[1] >= 8\nassert a.df[['price', 'image_mean', 'image_std', 'name_length']].notna().all().all()\nprint('All dataset acceptance checks passed.')\ndisplay(pd.Series(a.audit, name='value').to_frame())")
+    supplement = supplemental_sections(a, benchmark)
+    # Markdown links in a notebook are relative to notebooks/, not the project root.
+    supplement = re.sub(r"\]\((?!https?://)([^)]+)\)", r"](../\1)", supplement)
+    md("## 10. 피드백 보완: 해석·성능·검증·ML 설계\n\n" + supplement)
+    code("import json\nbenchmark = json.loads((ROOT / 'outputs/vectorization_benchmark.json').read_text(encoding='utf-8'))\ndisplay(pd.Series(benchmark, name='measured_value').to_frame())\nmanifest = json.loads((ROOT / 'outputs/figure_manifest.json').read_text(encoding='utf-8'))\nassert len(manifest) == 6\nassert all(item['title'] and item['xlabel'] and item['ylabel'] for item in manifest)\ndisplay(pd.DataFrame(manifest)[['type', 'path', 'title', 'xlabel', 'ylabel']])")
     nb.cells = cells
     nb.metadata = {"kernelspec": {"display_name": "Python 3 (project .venv)", "language": "python", "name": "python3"},
                    "language_info": {"name": "python", "version": "3.12"}}
@@ -269,30 +298,104 @@ def write_notebook(a, rfm, summary, insights, execute=False):
         manager = KernelManager(kernel_name="python3", kernel_spec_manager=ksm)
         client = NotebookClient(nb, timeout=600, kernel_name="python3", km=manager,
                                 resources={"metadata": {"path": str(ROOT)}})
-        client.execute()
-        nbf.write(nb, path)
+        try:
+            client.execute()
+            nbf.write(nb, path)
+        finally:
+            if manager.has_kernel:
+                manager.shutdown_kernel(now=True)
+    return nb
+
+
+def record_execution(nb, started, duration, settings, executed, error=None):
+    code_cells = [cell for cell in nb.cells if cell.cell_type == "code"] if nb else []
+    outputs = [output for cell in code_cells for output in cell.get("outputs", [])]
+    source_paths = sorted(list((ROOT / "src").glob("*.py")) + list((ROOT / "scripts").glob("*.py"))
+                          + [ROOT / "config.json"])
+    notebook_path = ROOT / "notebooks/analysis_report.ipynb"
+    summary = {
+        "status": "failed" if error else ("passed" if executed else "not_executed"),
+        "command": "python scripts/build_report.py" + (" --execute" if executed else ""),
+        "started_at_utc": started.isoformat(), "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+        "duration_seconds": duration, "code_cells": len(code_cells),
+        "executed_cells": sum(cell.get("execution_count") is not None for cell in code_cells),
+        "error_outputs": sum(output.output_type == "error" for output in outputs),
+        "embedded_png_outputs": sum("image/png" in output.get("data", {}) for output in outputs),
+        "versions": {"python": platform.python_version(), "numpy": np.__version__,
+                     "pandas": pd.__version__, "matplotlib": matplotlib.__version__, "seaborn": sns.__version__},
+        "source_hash_encoding": "UTF-8 bytes; CRLF normalized to LF",
+        "source_sha256": {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+                          for path in source_paths},
+        "notebook_hash_encoding": "UTF-8 bytes; CRLF normalized to LF",
+        "notebook_sha256": hashlib.sha256(notebook_path.read_bytes().replace(b'\r\n', b'\n')).hexdigest() if notebook_path.exists() else None,
+        "config_used": settings,
+    }
+    if error:
+        summary["error"] = error
+    if executed and not error:
+        if summary["executed_cells"] != len(code_cells) or summary["error_outputs"] or summary["embedded_png_outputs"] != 6:
+            raise ValueError("Notebook execution evidence is incomplete")
+    (ROOT / "outputs/execution_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    lines = [summary["command"], "status=" + summary["status"],
+             "started_at_utc=" + summary["started_at_utc"], "finished_at_utc=" + summary["finished_at_utc"],
+             "versions=" + json.dumps(summary["versions"]),
+             f"code_cells={summary['code_cells']} executed={summary['executed_cells']} errors={summary['error_outputs']} png={summary['embedded_png_outputs']}"]
+    for cell in code_cells:
+        lines.append(f"cell execution_count={cell.get('execution_count')}: {cell.source.splitlines()[0]}")
+        for output in cell.get("outputs", []):
+            if output.output_type == "stream":
+                lines.append(output.text.rstrip())
+    lines.append("error=" + error if error else "Complete; detailed table/PNG outputs are embedded in the notebook.")
+    log_text = "\n".join(line.rstrip() for line in "\n".join(lines).splitlines()) + "\n"
+    (ROOT / "outputs/execution.log").write_text(log_text, encoding="utf-8")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--config", type=Path, help="JSON overrides for config.json")
     args = parser.parse_args()
+    started = datetime.now(timezone.utc)
+    clock_start = perf_counter()
+    settings = load_config(args.config)
     (ROOT / "outputs/figures").mkdir(parents=True, exist_ok=True)
     (ROOT / "notebooks").mkdir(exist_ok=True)
-    a, rfm, summary, missing = analyze()
+    (ROOT / "outputs/config_used.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    print("Analyzing all transactions with", settings)
+    a, rfm, summary, missing = analyze(settings)
     rfm.to_csv(ROOT / "outputs/customer_rfm.csv")
     summary.to_csv(ROOT / "outputs/segment_summary.csv")
     a.summary_statistics().to_csv(ROOT / "outputs/descriptive_statistics.csv")
     a.df[["price", "quantity", "amount", "name_length", "image_mean", "image_std"]].corr().to_csv(ROOT / "outputs/correlation.csv")
+    correlation_pairs(a).to_csv(ROOT / "outputs/correlation_pairs.csv", index=False)
+    a.imputation_details["price"].to_csv(ROOT / "outputs/imputation_by_product.csv")
+    info = io.StringIO()
+    a.raw.info(buf=info)
+    structure = (info.getvalue() + "\nDtype counts:\n" + a.raw.dtypes.astype(str).value_counts().to_string()
+        + "\n\nHead:\n" + a.raw.head().to_string() + "\n\nDescribe:\n"
+        + a.raw.describe(include="all").to_string())
+    (ROOT / "outputs/data_structure.txt").write_text(
+        "\n".join(line.rstrip() for line in structure.splitlines()) + "\n", encoding="utf-8")
     pd.concat([missing.rename("before"), a.df.isna().sum().rename("after")], axis=1).to_csv(ROOT / "outputs/missing_values.csv")
     figures = create_figures(a, rfm)
-    for name, fig in figures.items():
-        fig.savefig(ROOT / "outputs/figures" / (name + ".png"), dpi=160, bbox_inches="tight")
+    save_figure_evidence(figures)
+    for fig in figures.values():
         plt.close(fig)
     (ROOT / "outputs/quality_audit.json").write_text(json.dumps(a.audit, indent=2), encoding="utf-8")
     insights = interpretations(a, rfm, summary)
-    write_readme(a, rfm, summary, insights)
-    write_notebook(a, rfm, summary, insights, execute=args.execute)
+    with np.load(ROOT / "data/image_fixtures.npz", allow_pickle=False) as fixtures:
+        benchmark = benchmark_images(fixtures["images"], count=settings["benchmark_image_count"],
+                                     repeats=settings["benchmark_repeats"])
+    (ROOT / "outputs/vectorization_benchmark.json").write_text(json.dumps(benchmark, indent=2), encoding="utf-8")
+    write_readme(a, rfm, summary, insights, benchmark)
+    write_evaluation_index()
+    try:
+        nb = write_notebook(a, rfm, summary, insights, benchmark, execute=args.execute)
+    except Exception as exc:
+        record_execution(None, started, perf_counter() - clock_start, settings, args.execute,
+                         error=type(exc).__name__ + ": " + str(exc))
+        raise
+    record_execution(nb, started, perf_counter() - clock_start, settings, args.execute)
     print(summary.round(2).to_string())
     print("Notebook executed:", args.execute)
 

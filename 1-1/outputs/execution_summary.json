@@ -1,0 +1,41 @@
+{
+  "status": "passed",
+  "command": "python scripts/build_report.py --execute",
+  "started_at_utc": "2026-10-28T13:51:35.535514+00:00",
+  "finished_at_utc": "2026-10-28T13:51:56.709911+00:00",
+  "duration_seconds": 21.173251600001095,
+  "code_cells": 11,
+  "executed_cells": 11,
+  "error_outputs": 0,
+  "embedded_png_outputs": 6,
+  "versions": {
+    "python": "3.12.7",
+    "numpy": "1.26.4",
+    "pandas": "2.2.3",
+    "matplotlib": "3.9.4",
+    "seaborn": "0.13.2"
+  },
+  "source_hash_encoding": "UTF-8 bytes; CRLF normalized to LF",
+  "source_sha256": {
+    "config.json": "e2bd07feabec27d3200e4571cd74dc8e5d31519b4da730f028a1efd41359feaf",
+    "scripts/benchmark_vectorization.py": "00bb4ae9d098e5e10332677ed598997f30ece5f50bde2120c1339c54279cb4f0",
+    "scripts/build_report.py": "ce63eea4c13196a408660c9129066ddae42d5ccf8a3f2b1e4330a3ad53261e8e",
+    "scripts/package_submission.py": "19ae3483b9369f214c18664129ed580bb1ecff20cc0696f27458e99dd7fd03e0",
+    "scripts/prepare_data.py": "a26ad7dc7d8be39b37d393b41b148e8bec99845aba7f875458f0bb282ddaee92",
+    "scripts/report_evidence.py": "a9dea8e437ad5f60b3d9e57a349302593b4bfd98ddea3df5ef6669152cc06ea6",
+    "src/__init__.py": "aa9b9a0e7d9c45c4c183f6797f6d05bd6fe2effe1143c87013967b61a0b737ee",
+    "src/pipeline.py": "796b32133e8e2b2fce11ef82a6be7290cfdede34560e83b5ec072e6dc5c05ffb"
+  },
+  "notebook_hash_encoding": "UTF-8 bytes; CRLF normalized to LF",
+  "notebook_sha256": "ce16a201d3bcb81bc27a29e3d1c92e8987c1632e889e044a50d2883af98b281d",
+  "config_used": {
+    "missing_strategy": "median",
+    "missing_group_col": "product_id",
+    "iqr_threshold": 1.5,
+    "reference_date": null,
+    "scatter_sample_size": 15000,
+    "random_seed": 42,
+    "benchmark_image_count": 1024,
+    "benchmark_repeats": 5
+  }
+}

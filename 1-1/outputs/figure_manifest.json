@@ -1,0 +1,56 @@
+[
+  {
+    "type": "histogram",
+    "path": "outputs/figures/01_histogram.png",
+    "bytes": 41874,
+    "sha256": "5b28596bf5bfde35c2abac14012735ba9620d887955587e508901f34498d7aa7",
+    "title": "Unit price distribution after imputation",
+    "xlabel": "log10(unit price in GBP)",
+    "ylabel": "Order lines"
+  },
+  {
+    "type": "boxplot",
+    "path": "outputs/figures/02_boxplot.png",
+    "bytes": 48200,
+    "sha256": "9e4e6e762ec1972bdccb67d30147f3bae0df06dce3027cb335c8c19dbdd91476",
+    "title": "IQR treatment changes the display, not RFM accounting",
+    "xlabel": "EDA treatment",
+    "ylabel": "Unit price (GBP, log scale)"
+  },
+  {
+    "type": "bar",
+    "path": "outputs/figures/03_bar.png",
+    "bytes": 45617,
+    "sha256": "c30385f1a9a88805afdfcd5cbc1b195f5280cee5f51afef4dccc397305c8e703",
+    "title": "Customer count by RFM segment",
+    "xlabel": "Segment",
+    "ylabel": "Customers"
+  },
+  {
+    "type": "heatmap",
+    "path": "outputs/figures/04_heatmap.png",
+    "bytes": 96149,
+    "sha256": "8c3c38d155ad415c6fbada34d4b89d502aa155cd6d01a7748c7c6f3a29134f37",
+    "title": "Pearson correlation; image fixtures are synthetic",
+    "xlabel": "Feature",
+    "ylabel": "Feature"
+  },
+  {
+    "type": "scatter",
+    "path": "outputs/figures/05_scatter.png",
+    "bytes": 142628,
+    "sha256": "67da343419fb7e7a1c523639d702381890728e826bafd52ce3faf25ea94a9c46",
+    "title": "Quantity and line spend (15,000-line fixed sample)",
+    "xlabel": "log10(quantity)",
+    "ylabel": "log10(gross line spend in GBP)"
+  },
+  {
+    "type": "line",
+    "path": "outputs/figures/06_line.png",
+    "bytes": 94159,
+    "sha256": "465cf848c4a263ef17eea2ccd9cda35696fc40603505c5fd26a6fe31372f314a",
+    "title": "Monthly identified gross purchases; final month is partial",
+    "xlabel": "Order month (December 2011: days 1-9)",
+    "ylabel": "Gross purchases (GBP thousands)"
+  }
+]

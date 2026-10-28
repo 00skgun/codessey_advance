@@ -1,0 +1,37 @@
+{
+  "images": 1024,
+  "shape": [
+    1024,
+    16,
+    16,
+    3
+  ],
+  "dtype": "float32",
+  "c_contiguous": true,
+  "repeats": 5,
+  "vectorized_median_ms": 2.739700001257006,
+  "loop_median_ms": 34.96729999824311,
+  "speedup": 12.763185743767458,
+  "max_absolute_difference": 0.0,
+  "python_version": "3.12.7",
+  "numpy_version": "1.26.4",
+  "machine": "AMD64",
+  "platform": "Windows",
+  "timing_scope": "mean/std only; excludes disk IO, casting, edge features and DataFrame joins",
+  "trials_ms": {
+    "vectorized_ms": [
+      2.739700001257006,
+      2.6204999994661193,
+      2.9303000010258984,
+      2.7819000024464913,
+      2.529500001401175
+    ],
+    "loop_ms": [
+      34.41899999961606,
+      34.96729999824311,
+      32.78890000001411,
+      35.688500000105705,
+      37.19289999935427
+    ]
+  }
+}

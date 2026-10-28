@@ -88,6 +88,30 @@ class PipelineTests(unittest.TestCase):
         self.analyzer.handle_missing_values()
         pd.testing.assert_frame_equal(source, before)
 
+    def test_missing_alias_preserves_strategy_and_group_audit(self):
+        a = self.analyzer
+        a.handle_missing(strategy="mean", group_col="product_id", column="price")
+        self.assertEqual(a.df.loc[5, "price"], 30.)
+        audit = a.audit["price_imputation"]
+        self.assertEqual(audit["group_imputed_rows"], 1)
+        self.assertEqual(audit["global_fallback_rows"], 1)
+        self.assertEqual(audit["all_missing_groups"], 1)
+        self.assertEqual(audit["strategy"], "mean")
+        self.assertEqual(a.imputation_details["price"].loc["d", "missing_ratio"], 0.5)
+        self.assertAlmostEqual(a.df.loc[7, "price"], (10 + 20 + 10 + 10 + 1000 + 30) / 6)
+
+    def test_image_values_outside_documented_range_rejected(self):
+        for value in [np.nan, np.inf, -1., 256.]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                DataAnalyzer.image_features(np.full((1, 2, 2, 3), value))
+
+    def test_noncontiguous_images_match_contiguous_reference(self):
+        source = np.arange(48, dtype=np.uint8).reshape(2, 2, 4, 3)
+        view = source[:, :, ::2, :]
+        self.assertFalse(view.flags.c_contiguous)
+        pd.testing.assert_frame_equal(DataAnalyzer.image_features(view),
+                                      DataAnalyzer.image_features(np.ascontiguousarray(view)))
+
 
 if __name__ == "__main__":
     unittest.main()

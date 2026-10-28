@@ -2,6 +2,18 @@
   "raw_rows": 541909,
   "exact_duplicate_rows": 5268,
   "imputed_price": 2517,
+  "price_imputation": {
+    "strategy": "median",
+    "group_col": "product_id",
+    "groups": 4070,
+    "groups_with_missing": 1420,
+    "all_missing_groups": 132,
+    "group_imputed_rows": 2383,
+    "global_fallback_rows": 134,
+    "global_reference_value": 2.08,
+    "observed_variance_ddof0": 8951.929091891936,
+    "filled_variance_ddof0": 9362.06750527732
+  },
   "price_iqr": {
     "q1": 1.25,
     "q3": 4.13,
@@ -15,5 +27,11 @@
   "nonpositive_or_missing_price_rows": 2517,
   "invalid_date_rows": 0,
   "valid_purchase_rows": 397884,
-  "excluded_rows": 144025
+  "excluded_rows": 144025,
+  "stage_seconds": {
+    "csv_load_and_raw_copy": 1.299868800000695,
+    "group_imputation": 1.374977300001774,
+    "image_io_features_and_join": 1.3212929000001168,
+    "iqr_and_rfm": 0.6786289999981818
+  }
 }

@@ -13,6 +13,7 @@ class DataAnalyzer:
         self.raw = None
         self.df = None
         self.audit = {}
+        self.imputation_details = {}
         self.reference_date = None
 
     def load_data(self, data=None):
@@ -39,6 +40,7 @@ class DataAnalyzer:
         self.raw = df.copy(deep=True)
         # Exact duplicates may be legitimate lines; flag them but retain them.
         self.audit = {"raw_rows": len(df), "exact_duplicate_rows": int(df.duplicated().sum())}
+        self.imputation_details = {}
         df["price_was_invalid"] = df.price.isna() | df.price.le(0)
         df.loc[df.price_was_invalid, "price"] = np.nan
         df["country"] = df.country.fillna("Unknown")
@@ -56,11 +58,32 @@ class DataAnalyzer:
         if pd.isna(global_value):
             raise ValueError("Cannot impute a column with no valid observations")
         group_values = self.df.groupby(group_col, dropna=False)[column].transform(strategy)
+        details = self.df.groupby(group_col, dropna=False)[column].agg(
+            total_rows="size", observed_rows="count", reference_value=strategy)
+        details["missing_rows"] = details.total_rows - details.observed_rows
+        details["missing_ratio"] = details.missing_rows / details.total_rows
+        details["uses_global_fallback"] = details.reference_value.isna()
+        self.imputation_details[column] = details
         self.audit["imputed_" + column] = int(values.isna().sum())
         self.df[column] = values.fillna(group_values).fillna(global_value)
+        self.audit[column + "_imputation"] = {
+            "strategy": strategy, "group_col": group_col,
+            "groups": len(details),
+            "groups_with_missing": int(details.missing_rows.gt(0).sum()),
+            "all_missing_groups": int(details.uses_global_fallback.sum()),
+            "group_imputed_rows": int((values.isna() & group_values.notna()).sum()),
+            "global_fallback_rows": int((values.isna() & group_values.isna()).sum()),
+            "global_reference_value": float(global_value),
+            "observed_variance_ddof0": float(values.var(ddof=0)),
+            "filled_variance_ddof0": float(self.df[column].var(ddof=0)),
+        }
         self.df["product_name"] = self.df.groupby("product_id")["product_name"].transform(
             lambda series: series.ffill().bfill()).fillna("UNKNOWN PRODUCT")
         return self.df
+
+    def handle_missing(self, strategy="median", group_col="product_id", column="price"):
+        """Compatibility entry point; delegates to handle_missing_values unchanged."""
+        return self.handle_missing_values(strategy=strategy, group_col=group_col, column=column)
 
     @staticmethod
     def image_features(images):
@@ -70,7 +93,11 @@ class DataAnalyzer:
             raise ValueError("Expected a nonempty N,H,W,C array")
         if not np.isfinite(arr).all():
             raise ValueError("Images must contain finite numbers")
-        arr = arr.astype(np.float32)
+        if arr.min() < 0 or arr.max() > 255:
+            raise ValueError("Expected image intensities in the range [0, 255]")
+        # Predictable contiguous strides improve locality; SIMD dispatch is a
+        # NumPy/build/CPU decision and is not guaranteed for every reduction.
+        arr = np.ascontiguousarray(arr, dtype=np.float32)
         features = pd.DataFrame({
             "image_mean": arr.mean(axis=(1, 2, 3)),
             "image_std": arr.std(axis=(1, 2, 3)),

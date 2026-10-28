@@ -1,0 +1,10 @@
+{
+  "missing_strategy": "median",
+  "missing_group_col": "product_id",
+  "iqr_threshold": 1.5,
+  "reference_date": null,
+  "scatter_sample_size": 15000,
+  "random_seed": 42,
+  "benchmark_image_count": 1024,
+  "benchmark_repeats": 5
+}

@@ -14,6 +14,20 @@ def main():
     outputs = [output for cell in code_cells for output in cell.get("outputs", [])]
     assert not any(output["output_type"] == "error" for output in outputs)
     assert sum("image/png" in output.get("data", {}) for output in outputs) == 6
+    execution = json.loads((ROOT / "outputs/execution_summary.json").read_text(encoding="utf-8"))
+    assert execution["status"] == "passed", "Record a successful --execute run first"
+    assert execution["executed_cells"] == len(code_cells) and execution["error_outputs"] == 0
+    assert execution["notebook_sha256"] == hashlib.sha256(
+        (ROOT / "notebooks/analysis_report.ipynb").read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+    assert execution["config_used"] == json.loads((ROOT / "outputs/config_used.json").read_text(encoding="utf-8"))
+    for name, expected in execution["source_sha256"].items():
+        actual = hashlib.sha256((ROOT / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+        assert actual == expected, "Source changed since execution: " + name
+    figures = json.loads((ROOT / "outputs/figure_manifest.json").read_text(encoding="utf-8"))
+    assert len(figures) == 6
+    for figure in figures:
+        assert figure["title"] and figure["xlabel"] and figure["ylabel"]
+        assert hashlib.sha256((ROOT / figure["path"]).read_bytes()).hexdigest() == figure["sha256"]
     manifest = json.loads((ROOT / "data/manifest.json").read_text(encoding="utf-8"))
     assert hashlib.sha256((ROOT / "data/raw/transactions.csv").read_bytes()).hexdigest() == manifest["csv_sha256"]
     audit = json.loads((ROOT / "outputs/quality_audit.json").read_text(encoding="utf-8"))
@@ -21,7 +35,7 @@ def main():
     assert audit["valid_purchase_rows"] + audit["excluded_rows"] == audit["raw_rows"]
     target = ROOT / "outputs/ecommerce_submission_bundle.zip"
     folders = [ROOT / name for name in ["src", "scripts", "notebooks", "data", "outputs", "tests"]]
-    files = [ROOT / name for name in ["README.md", ".gitignore", "requirements.txt", "requirements-dev.txt"]]
+    files = [ROOT / name for name in ["README.md", ".gitignore", "requirements.txt", "requirements-dev.txt", "config.json"]]
     files.extend(path for folder in folders for path in folder.rglob("*") if path.is_file())
     files = sorted(path for path in files if "__pycache__" not in path.parts
                    and path.suffix not in {".pyc", ".zip"})
